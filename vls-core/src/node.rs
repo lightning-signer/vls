@@ -1252,6 +1252,32 @@ impl Node {
         *vfac = validator_factory;
     }
 
+    /// Set the node's persister (for migrating persisters)
+    pub fn set_persister(&mut self, persister: Arc<dyn Persist>) {
+        self.persister = persister;
+    }
+
+    /// Persist everything.
+    /// This is normally not needed, as the node will persist itself,
+    /// but may be useful if switching to a new persister.
+    pub fn persist_all(&self) {
+        let persister = &self.persister;
+        persister.new_node(&self.get_id(), &self.node_config, &self.state.lock().unwrap()).unwrap();
+        for channel in self.channels.lock().unwrap().values() {
+            let channel = channel.lock().unwrap();
+            match &*channel {
+                ChannelSlot::Stub(_) => {}
+                ChannelSlot::Ready(chan) => {
+                    persister.update_channel(&self.get_id(), &chan).unwrap();
+                }
+            }
+        }
+        persister.update_tracker(&self.get_id(), &self.tracker.lock().unwrap()).unwrap();
+        let alset = self.allowlist.lock().unwrap();
+        let wlvec = (*alset).iter().map(|a| a.to_string(self.network())).collect();
+        self.persister.update_node_allowlist(&self.get_id(), wlvec).unwrap();
+    }
+
     /// Get the node ID, which is the same as the node public key
     pub fn get_id(&self) -> PublicKey {
         self.node_id
@@ -1319,9 +1345,8 @@ impl Node {
         let slot_arc = self.get_channel(channel_id)?;
         let mut slot = slot_arc.lock().unwrap();
         match &mut *slot {
-            ChannelSlot::Stub(_) => {
-                Err(invalid_argument(format!("channel not ready: {}", &channel_id)))
-            }
+            ChannelSlot::Stub(_) =>
+                Err(invalid_argument(format!("channel not ready: {}", &channel_id))),
             ChannelSlot::Ready(chan) => f(chan),
         }
     }
@@ -1822,9 +1847,8 @@ impl Node {
                 let (privkey, mut witness) = match uck {
                     // There was a unilateral_close_key.
                     // TODO we don't care about the network here
-                    Some((key, stack)) => {
-                        (bitcoin::PrivateKey::new(key.clone(), Network::Testnet), stack)
-                    }
+                    Some((key, stack)) =>
+                        (bitcoin::PrivateKey::new(key.clone(), Network::Testnet), stack),
                     // Derive the HD key.
                     None => {
                         let key = self.get_wallet_privkey(&secp_ctx, &ipaths[idx])?;
@@ -2588,11 +2612,10 @@ fn find_channel_with_funding_outpoint(
     for (_, slot_arc) in channels_lock.iter() {
         let slot = slot_arc.lock().unwrap();
         match &*slot {
-            ChannelSlot::Ready(chan) => {
+            ChannelSlot::Ready(chan) =>
                 if chan.setup.funding_outpoint == *outpoint {
                     return Some(Arc::clone(slot_arc));
-                }
-            }
+                },
             ChannelSlot::Stub(_stub) => {
                 // ignore stubs ...
             }

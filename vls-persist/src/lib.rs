@@ -12,3 +12,4 @@ pub mod util;
 
 #[cfg(feature = "kv-json")]
 pub mod kv_json;
+pub mod kvv;

@@ -110,6 +110,8 @@ pub enum Error {
     AlreadyExists(String),
     /// Non-recoverable internal error
     Internal(String),
+    /// Version mismatch
+    VersionMismatch,
 }
 
 /// Persister of nodes and channels
